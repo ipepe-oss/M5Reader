@@ -529,12 +529,29 @@ void setup() {
   Serial.begin(115200);
   Serial.println("M5Reader starting up...");
   
-  // Initialize display
+  // Show splash screen as soon as possible
   display.init();
   if (display.isEPD()) {
-    display.setEpdMode(epd_mode_t::epd_text);  // Text mode for e-reader
+    // EPD warnings about cache size are normal with Arduino framework
+    // Setting to text mode which is optimal for e-readers
+    display.setEpdMode(epd_mode_t::epd_text);
     display.invertDisplay(true);
     display.clear(TFT_WHITE);
+    
+    // Display splash screen while initializing
+    int centerX = display.width() / 2;
+    int centerY = display.height() / 2;
+    
+    display.setCursor(centerX - 80, centerY - 20);
+    display.setTextSize(2);
+    display.setTextColor(TFT_BLACK, TFT_WHITE);
+    display.println("M5Reader");
+    
+    display.setCursor(centerX - 140, centerY + 20);
+    display.setTextSize(1);
+    display.println("EPUB Reader for M5Paper");
+    
+    display.display();
   }
   
   // Set rotation to landscape if needed
@@ -555,19 +572,40 @@ void setup() {
     delay(2000);
   }
   
-  // Initialize SD card
+  // Reset text size for info display
+  display.setTextSize(1);
+  
+  // Clear the top portion for status messages
+  display.fillRect(0, 0, display.width(), 120, TFT_WHITE);
   display.setCursor(0, 0);
+
+  // Initialize SD card
   display.println("Initializing SD card...");
   display.display();
   
   bool sdCardAvailable = false;
-  if (!SD.begin(PIN_SD_CS, SPI, 25000000)) {
-    display.println("SD Card initialization failed!");
+  
+  // Try SD card initialization multiple times
+  for (int attempt = 1; attempt <= 3 && !sdCardAvailable; attempt++) {
+    display.print("Attempt " + String(attempt) + "... ");
     display.display();
-    delay(1000);
+    
+    if (SD.begin(PIN_SD_CS, SPI, 20000000)) { // Try with reduced speed
+      display.println("Success!");
+      sdCardAvailable = true;
+    } else {
+      display.println("Failed.");
+      delay(500);
+    }
+  }
+  
+  if (!sdCardAvailable) {
+    display.println("SD Card initialization failed after 3 attempts!");
+    display.println("Check if SD card is properly inserted.");
+    display.display();
+    delay(2000);
   } else {
-    display.println("SD Card initialized.");
-    sdCardAvailable = true;
+    display.println("SD Card initialized successfully.");
     display.display();
   }
   
