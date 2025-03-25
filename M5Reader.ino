@@ -439,6 +439,89 @@ private:
 };
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+void listDir(fs::FS &fs, const char * dirname, uint8_t levels) {
+  File root = fs.open(dirname);
+  if (!root) {
+    display.println("Failed to open directory");
+    return;
+  }
+  if (!root.isDirectory()) {
+    display.println("Not a directory");
+    return;
+  }
+
+  File file = root.openNextFile();
+  int fileCount = 0;
+  
+  while (file && fileCount < 5) { // Show at most 5 files
+    if (file.isDirectory()) {
+      if (levels) {
+        display.print("  DIR : ");
+        display.println(file.name());
+      }
+    } else {
+      display.print("  FILE: ");
+      display.print(file.name());
+      display.print(" (");
+      display.print(file.size());
+      display.println(")");
+      fileCount++;
+    }
+    file = root.openNextFile();
+  }
+  
+  if (file) {
+    display.println("... and more files");
+  }
+}
+
+bool findAndOpenAnyEpub(File dir) {
+  if (!dir || !dir.isDirectory()) {
+    return false;
+  }
+  
+  File file = dir.openNextFile();
+  bool found = false;
+  char filePath[MAX_PATH_LENGTH];
+  
+  while (file && !found) {
+    if (file.isDirectory()) {
+      // Skip directories starting with . (hidden folders)
+      if (file.name()[0] != '.') {
+        found = findAndOpenAnyEpub(file);
+      }
+    } else {
+      String fileName = String(file.name());
+      fileName.toLowerCase();
+      
+      if (fileName.endsWith(".epub")) {
+        display.println("Found EPUB: " + fileName);
+        display.display();
+        
+        // Get full path
+        sprintf(filePath, "%s", file.path());
+        
+        if (epubReader->open(SD, filePath)) {
+          display.println("Book loaded successfully!");
+          found = true;
+        } else {
+          display.println("Error opening " + fileName);
+        }
+      }
+    }
+    
+    if (!found) {
+      file = dir.openNextFile();
+    }
+  }
+  
+  return found;
+}
+
+// ============================================================================
 // Main Arduino Functions
 // ============================================================================
 
