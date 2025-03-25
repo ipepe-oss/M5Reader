@@ -21,10 +21,10 @@ int currentPage = 0;
 int totalPages = 0;
 bool needsRefresh = true;
 
-// Touch areas
-const int NEXT_PAGE_AREA = 1;
-const int PREV_PAGE_AREA = 0;
-int touchArea = -1;
+// Touch variables
+int touchX = 0;
+int touchY = 0;
+uint8_t touchCount = 0;
 
 // Buffer sizes
 #define MAX_CHAPTER_SIZE 32768
