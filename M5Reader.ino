@@ -7,9 +7,6 @@
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 
-// For EPUB parsing (ZIP format)
-#include "esp_task_wdt.h"
-
 // Define SD card pin
 #define PIN_SD_CS GPIO_NUM_4
 
@@ -25,6 +22,10 @@ bool needsRefresh = true;
 int touchX = 0;
 int touchY = 0;
 uint8_t touchCount = 0;
+
+// Power management
+unsigned long lastActivityTime = 0;
+const unsigned long SLEEP_TIMEOUT = 300000; // 5 minutes in ms
 
 // Buffer sizes
 #define MAX_CHAPTER_SIZE 32768
@@ -472,15 +473,23 @@ void setup() {
   delay(1000);
   display.clear(TFT_WHITE);
   displayCurrentPage();
+  
+  // Initialize power management
+  lastActivityTime = millis();
 }
 
 void loop() {
+  // Check for touch input
   checkTouchInput();
   
+  // Refresh display if needed
   if (needsRefresh) {
     displayCurrentPage();
     needsRefresh = false;
   }
+  
+  // Check for inactivity timeout
+  checkSleepTimeout();
   
   // Power saving
   delay(50);
@@ -490,6 +499,9 @@ void checkTouchInput() {
   touchCount = display.getTouch(&touchX, &touchY);
   
   if (touchCount) {
+    // Reset sleep timer on any touch
+    lastActivityTime = millis();
+    
     bool pageChanged = false;
     
     // Right side of screen - next page
@@ -530,4 +542,29 @@ void displayCurrentPage() {
   
   display.endWrite();
   display.display();
+}
+
+void checkSleepTimeout() {
+  // Check if we should go to sleep due to inactivity
+  if (millis() - lastActivityTime > SLEEP_TIMEOUT) {
+    Serial.println("Going to sleep due to inactivity...");
+    
+    // Save current reading position if needed
+    // saveReadingState();
+    
+    // Show sleep message
+    display.setCursor(display.width()/2 - 100, display.height()/2);
+    display.println("Going to sleep...");
+    display.display();
+    delay(1000);
+    
+    // Power down display
+    display.sleep();
+    
+    // Go to deep sleep - in real implementation would use esp_deep_sleep
+    // esp_deep_sleep_start();
+    
+    // For demo, just reset the timer
+    lastActivityTime = millis();
+  }
 }
