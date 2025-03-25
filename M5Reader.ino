@@ -134,6 +134,44 @@ public:
     return initialized;
   }
   
+  bool createDummyBook() {
+    // Allocate memory for chapter content if needed
+    if (chapterContent == NULL) {
+      chapterContent = (char*)heap_caps_malloc(MAX_CHAPTER_SIZE, MALLOC_CAP_SPIRAM);
+      if (chapterContent == NULL) {
+        Serial.println("Failed to allocate memory for dummy content");
+        return false;
+      }
+    }
+    
+    // Reset variables
+    chapterCount = 0;
+    currentChapterIndex = 0;
+    currentCharPos = 0;
+    currentPageInChapter = 0;
+    
+    // Create book metadata
+    strcpy(title, "Sample EPUB Book");
+    strcpy(author, "Example Author");
+    
+    // Add dummy chapters
+    chapterCount = 5;
+    strcpy(chapterPaths[0], "chapter1.html");
+    strcpy(chapterPaths[1], "chapter2.html");
+    strcpy(chapterPaths[2], "chapter3.html");
+    strcpy(chapterPaths[3], "chapter4.html");
+    strcpy(chapterPaths[4], "chapter5.html");
+    
+    // Load the first chapter
+    if (!loadChapter(0)) {
+      Serial.println("Failed to load dummy chapter");
+      return false;
+    }
+    
+    initialized = true;
+    return true;
+  }
+  
   void setDisplayParams(uint16_t width, uint16_t height, float textSize) {
     displayWidth = width;
     displayHeight = height;
