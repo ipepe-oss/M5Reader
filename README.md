@@ -25,4 +25,3 @@ Key takeaways:
    * <https://www.youtube.com/watch?v=KQS_xDDWfLw>
    * <https://www.reddit.com/r/esp32/comments/e8n7p1/esp32_tips_to_increase_battery_life_15_weeks_and/>
    * <https://www.youtube.com/watch?v=kgtsSNjnzSI>
-   * 
