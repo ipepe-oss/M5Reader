@@ -6,6 +6,10 @@
 #include <SPIFFS.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
+#include <esp_task_wdt.h>
+
+// Debug flag - set to true for detailed debugging
+#define DEBUG_MODE true
 
 // Define SD card pin
 #define PIN_SD_CS GPIO_NUM_4
@@ -526,173 +530,114 @@ bool findAndOpenAnyEpub(File dir) {
 // ============================================================================
 
 void setup() {
+  // Initialize serial for debugging
   Serial.begin(115200);
   Serial.println("M5Reader starting up...");
   
-  // Show splash screen as soon as possible
-  display.init();
-  if (display.isEPD()) {
-    // EPD warnings about cache size are normal with Arduino framework
-    // Setting to text mode which is optimal for e-readers
-    display.setEpdMode(epd_mode_t::epd_text);
-    display.invertDisplay(true);
-    display.clear(TFT_WHITE);
-    
-    // Display splash screen while initializing
-    int centerX = display.width() / 2;
-    int centerY = display.height() / 2;
-    
-    display.setCursor(centerX - 80, centerY - 20);
-    display.setTextSize(2);
-    display.setTextColor(TFT_BLACK, TFT_WHITE);
-    display.println("M5Reader");
-    
-    display.setCursor(centerX - 140, centerY + 20);
-    display.setTextSize(1);
-    display.println("EPUB Reader for M5Paper");
-    
-    display.display();
-  }
+  // Disable watchdog during initialization
+  esp_task_wdt_init(30, false);
   
-  // Set rotation to landscape if needed
-  if (display.width() < display.height()) {
-    display.setRotation(display.getRotation() ^ 1);
-  }
-  
-  // Setup fonts
-  display.setTextSize(1);
-  display.setTextColor(TFT_BLACK, TFT_WHITE);
-  
-  // Initialize SPIFFS for local storage
-  if (!SPIFFS.begin(true)) {
-    Serial.println("SPIFFS initialization failed!");
-    display.setCursor(0, 0);
-    display.println("SPIFFS initialization failed!");
-    display.display();
-    delay(2000);
-  }
-  
-  // Reset text size for info display
-  display.setTextSize(1);
-  
-  // Clear the top portion for status messages
-  display.fillRect(0, 0, display.width(), 120, TFT_WHITE);
-  display.setCursor(0, 0);
-
-  // Initialize SD card
-  display.println("Initializing SD card...");
-  display.display();
-  
-  bool sdCardAvailable = false;
-  
-  // Try SD card initialization multiple times
-  for (int attempt = 1; attempt <= 3 && !sdCardAvailable; attempt++) {
-    display.print("Attempt " + String(attempt) + "... ");
-    display.display();
-    
-    if (SD.begin(PIN_SD_CS, SPI, 20000000)) { // Try with reduced speed
-      display.println("Success!");
-      sdCardAvailable = true;
-    } else {
-      display.println("Failed.");
-      delay(500);
+  // Debug helper function
+  auto log = [](const String& msg) {
+    Serial.println(msg);
+    if (display.isEPD()) {
+      display.println(msg);
+      display.display();
     }
-  }
+  };
   
-  if (!sdCardAvailable) {
-    display.println("SD Card initialization failed after 3 attempts!");
-    display.println("Check if SD card is properly inserted.");
-    display.display();
-    delay(2000);
-  } else {
-    display.println("SD Card initialized successfully.");
-    display.display();
-  }
-  
-  // Create EPUB reader
-  epubReader = new EpubReader();
-  
-  bool bookOpened = false;
-  
-  if (sdCardAvailable) {
-    // List files on SD card root for debugging
-    display.println("Files on SD card:");
-    listDir(SD, "/", 0);
+  try {
+    // ------------- DISPLAY INITIALIZATION -------------
+    log("Initializing display...");
+    
+    // Show splash screen as soon as possible
+    display.init();
+    if (display.isEPD()) {
+      // Use text mode for better e-reader experience
+      display.setEpdMode(epd_mode_t::epd_quality);
+      display.setTextColor(TFT_BLACK, TFT_WHITE);
+      display.setCursor(0, 0);
+      display.clear(TFT_WHITE);
+      
+      // Display splash screen
+      int centerX = display.width() / 2;
+      int centerY = display.height() / 2;
+      
+      display.setTextSize(2);
+      display.setCursor(centerX - 80, centerY - 30);
+      display.println("M5Reader");
+      
+      display.setTextSize(1);
+      display.setCursor(centerX - 140, centerY);
+      display.println("EPUB Reader for M5Paper");
+      
+      display.setCursor(centerX - 100, centerY + 20);
+      display.println("Initializing...");
+      
+      display.display();
+      delay(1000);
+    }
+    
+    // Set rotation to landscape if needed
+    if (display.width() < display.height()) {
+      display.setRotation(display.getRotation() ^ 1);
+    }
+    
+    // ------------- BASIC STORAGE INITIALIZATION -------------
+    
+    // Clear display for status messages
+    display.fillRect(0, 0, display.width(), 100, TFT_WHITE);
+    display.setCursor(0, 0);
+    display.setTextSize(1);
+    
+    // Simple demo mode - skip complex initialization
+    bool demoMode = true;
+    
+    log("Entering demo mode...");
     display.display();
     delay(1000);
     
-    // Check if book.epub exists on SD card
-    if (SD.exists("/book.epub")) {
-      display.println("Found book.epub, loading...");
-      display.display();
-      
-      if (epubReader->open(SD, "/book.epub")) {
-        bookOpened = true;
-        display.println("Book loaded successfully!");
-      } else {
-        display.println("Error opening book.epub!");
-      }
-    } else {
-      // Try alternative files
-      const char* possibleBooks[] = {
-        "/ebook.epub", 
-        "/books/book.epub", 
-        "/epub/book.epub",
-        "/novels/book.epub",
-        "/Book.epub",
-        "/BOOK.EPUB"
-      };
-      
-      for (int i = 0; i < 6 && !bookOpened; i++) {
-        if (SD.exists(possibleBooks[i])) {
-          display.println("Found " + String(possibleBooks[i]) + ", loading...");
-          display.display();
-          
-          if (epubReader->open(SD, possibleBooks[i])) {
-            bookOpened = true;
-            display.println("Book loaded successfully!");
-            break;
-          }
-        }
-      }
-      
-      if (!bookOpened) {
-        // Look for any .epub files
-        File root = SD.open("/");
-        bookOpened = findAndOpenAnyEpub(root);
-        root.close();
-        
-        if (!bookOpened) {
-          display.println("No EPUB books found on SD card.");
-        }
-      }
+    // ------------- EPUB READER INITIALIZATION -------------
+    
+    // Create EPUB reader with dummy data
+    epubReader = new EpubReader();
+    
+    if (epubReader == NULL) {
+      log("Failed to create EpubReader!");
+      delay(2000);
+      ESP.restart();
     }
-  }
-  
-  // If no book was opened, create dummy data
-  if (!bookOpened) {
-    display.println("Creating dummy book for demo.");
+    
+    log("Creating dummy book for demo.");
     display.display();
     
     // Initialize with dummy data
     epubReader->createDummyBook();
+    
+    // Configure display parameters
+    epubReader->setDisplayParams(display.width(), display.height(), display.getTextSizeX());
+    
+    // Get total pages
+    totalPages = epubReader->getTotalPages();
+    log("Book loaded. Total pages: " + String(totalPages));
+    display.display();
+    
     delay(1000);
+    display.clear(TFT_WHITE);
+    displayCurrentPage();
+    
+    // Initialize power management
+    lastActivityTime = millis();
+    
+  } catch (const std::exception& e) {
+    log("Exception in setup: " + String(e.what()));
+    delay(5000);
+    ESP.restart();
+  } catch (...) {
+    log("Unknown exception in setup!");
+    delay(5000);
+    ESP.restart();
   }
-  
-  // Configure display parameters
-  epubReader->setDisplayParams(display.width(), display.height(), display.getTextSizeX());
-  
-  // Get total pages
-  totalPages = epubReader->getTotalPages();
-  display.println("Book loaded. Total pages: " + String(totalPages));
-  display.display();
-  
-  delay(1000);
-  display.clear(TFT_WHITE);
-  displayCurrentPage();
-  
-  // Initialize power management
-  lastActivityTime = millis();
 }
 
 void loop() {
