@@ -439,27 +439,70 @@ void setup() {
   display.println("Initializing SD card...");
   display.display();
   
+  bool sdCardAvailable = false;
   if (!SD.begin(PIN_SD_CS, SPI, 25000000)) {
     display.println("SD Card initialization failed!");
     display.display();
-    delay(2000);
+    delay(1000);
   } else {
     display.println("SD Card initialized.");
+    sdCardAvailable = true;
     display.display();
   }
   
   // Create EPUB reader
   epubReader = new EpubReader();
   
-  // Load EPUB book
-  display.println("Loading book.epub...");
-  display.display();
+  bool bookOpened = false;
   
-  if (!epubReader->open(SD, "/book.epub")) {
-    display.println("Failed to open book.epub!");
-    display.println("Creating dummy EPUB data for demo.");
+  if (sdCardAvailable) {
+    // Check if book.epub exists on SD card
+    if (SD.exists("/book.epub")) {
+      display.println("Found book.epub, loading...");
+      display.display();
+      
+      if (epubReader->open(SD, "/book.epub")) {
+        bookOpened = true;
+        display.println("Book loaded successfully!");
+      } else {
+        display.println("Error opening book.epub!");
+      }
+    } else {
+      // Try alternative files
+      const char* possibleBooks[] = {
+        "/ebook.epub", 
+        "/books/book.epub", 
+        "/epub/book.epub",
+        "/novels/book.epub"
+      };
+      
+      for (int i = 0; i < 4 && !bookOpened; i++) {
+        if (SD.exists(possibleBooks[i])) {
+          display.println("Found " + String(possibleBooks[i]) + ", loading...");
+          display.display();
+          
+          if (epubReader->open(SD, possibleBooks[i])) {
+            bookOpened = true;
+            display.println("Book loaded successfully!");
+            break;
+          }
+        }
+      }
+      
+      if (!bookOpened) {
+        display.println("No EPUB books found on SD card.");
+      }
+    }
+  }
+  
+  // If no book was opened, create dummy data
+  if (!bookOpened) {
+    display.println("Creating dummy book for demo.");
     display.display();
-    delay(2000);
+    
+    // Initialize with dummy data
+    epubReader->createDummyBook();
+    delay(1000);
   }
   
   // Configure display parameters
