@@ -494,6 +494,12 @@ void setup() {
   bool bookOpened = false;
   
   if (sdCardAvailable) {
+    // List files on SD card root for debugging
+    display.println("Files on SD card:");
+    listDir(SD, "/", 0);
+    display.display();
+    delay(1000);
+    
     // Check if book.epub exists on SD card
     if (SD.exists("/book.epub")) {
       display.println("Found book.epub, loading...");
@@ -511,10 +517,12 @@ void setup() {
         "/ebook.epub", 
         "/books/book.epub", 
         "/epub/book.epub",
-        "/novels/book.epub"
+        "/novels/book.epub",
+        "/Book.epub",
+        "/BOOK.EPUB"
       };
       
-      for (int i = 0; i < 4 && !bookOpened; i++) {
+      for (int i = 0; i < 6 && !bookOpened; i++) {
         if (SD.exists(possibleBooks[i])) {
           display.println("Found " + String(possibleBooks[i]) + ", loading...");
           display.display();
@@ -528,7 +536,14 @@ void setup() {
       }
       
       if (!bookOpened) {
-        display.println("No EPUB books found on SD card.");
+        // Look for any .epub files
+        File root = SD.open("/");
+        bookOpened = findAndOpenAnyEpub(root);
+        root.close();
+        
+        if (!bookOpened) {
+          display.println("No EPUB books found on SD card.");
+        }
       }
     }
   }
@@ -612,7 +627,10 @@ void checkTouchInput() {
 }
 
 void displayCurrentPage() {
-  if (!epubReader->isInitialized()) return;
+  if (!epubReader->isInitialized()) {
+    displayErrorScreen("Reader not initialized!");
+    return;
+  }
   
   display.waitDisplay();
   display.startWrite();
@@ -620,6 +638,45 @@ void displayCurrentPage() {
   
   // Render the current page
   epubReader->renderPage(display, 0, 0);
+  
+  display.endWrite();
+  display.display();
+}
+
+void displayErrorScreen(const char* message) {
+  display.waitDisplay();
+  display.startWrite();
+  display.clear(TFT_WHITE);
+  
+  // Draw error icon or symbol
+  int centerX = display.width() / 2;
+  int centerY = display.height() / 2 - 40;
+  
+  // Draw a warning triangle
+  display.fillTriangle(
+    centerX, centerY - 30,
+    centerX - 30, centerY + 20,
+    centerX + 30, centerY + 20,
+    TFT_BLACK
+  );
+  
+  display.fillTriangle(
+    centerX, centerY - 20,
+    centerX - 20, centerY + 10,
+    centerX + 20, centerY + 10,
+    TFT_WHITE
+  );
+  
+  // Display error message
+  display.setCursor(centerX - 100, centerY + 40);
+  display.setTextColor(TFT_BLACK, TFT_WHITE);
+  display.println(message);
+  
+  // Add instructions
+  display.setCursor(centerX - 120, centerY + 80);
+  display.println("Please add book.epub to SD card");
+  display.setCursor(centerX - 120, centerY + 100);
+  display.println("or restart the device to try again.");
   
   display.endWrite();
   display.display();
