@@ -1,9 +1,12 @@
 /*
- * E-Book reader for M5Paper using M5GFX and epdiy.
+ * E-Book reader for M5PaperS3 using M5GFX and epdiy.
  *
  * It reads a single book on the root of the Micro SD card, called "Book.txt".
  *
- * The left and right buttons navigate between pages, and the middle button turns the device off.
+ * Touch controls:
+ * - Left side of screen: Previous page
+ * - Right side of screen: Next page
+ * - Middle of screen: Display menu (long press for power off)
  *
  * The page you're on is saved to the SD card, rather than the EEPROM, to avoid wear.
  */
@@ -163,6 +166,13 @@ void setup() {
     display.setRotation(display.getRotation() ^ 1);
   }
 
+  // Initialize touch
+  if (!display.touch()) {
+    Serial.println("Touch controller not found!");
+  } else {
+    Serial.println("Touch controller initialized.");
+  }
+
   // Initialize canvas
   canvas.setColorDepth(1); // mono color
   canvas.createSprite(display.width(), display.height());
@@ -210,31 +220,165 @@ void setup() {
   displayPage(textFile, pages[currentPage]);
 }
 
+// Touch screen regions
+#define LEFT_REGION 0
+#define MIDDLE_REGION 1
+#define RIGHT_REGION 2
+
+// For long press detection
+unsigned long touchStartTime = 0;
+bool touchActive = false;
+int lastTouchRegion = -1;
+const unsigned long LONG_PRESS_DURATION = 2000; // 2 seconds for long press
+
+int getTouchRegion() {
+  lgfx::touch_point_t tp;
+  
+  if (display.getTouch(&tp)) {
+    // Convert raw touch coordinates
+    display.convertRawXY(&tp, 1);
+    
+    // Divide screen into three vertical regions
+    int screenWidth = display.width();
+
+    Serial.printf("Touch at X:%d Y:%d\n", tp.x, tp.y);
+    
+    if (tp.x < screenWidth / 3) {
+      return LEFT_REGION;
+    } else if (tp.x < (screenWidth * 2) / 3) {
+      return MIDDLE_REGION;
+    } else {
+      return RIGHT_REGION;
+    }
+  }
+  
+  return -1; // No touch detected
+}
+
+void showMenu() {
+  // Save current state of the canvas
+  canvas.pushSprite(0, 0);
+  
+  // Create a menu overlay
+  M5Canvas menuCanvas(&display);
+  menuCanvas.createSprite(display.width() / 2, display.height() / 3);
+  menuCanvas.fillSprite(TFT_WHITE);
+  menuCanvas.setTextColor(TFT_BLACK);
+  menuCanvas.setTextDatum(MC_DATUM);
+  
+  // Menu title
+  menuCanvas.setTextSize(1.5);
+  menuCanvas.drawString("MENU", menuCanvas.width() / 2, 30);
+  
+  // Menu options
+  menuCanvas.setTextSize(1);
+  menuCanvas.drawString("Tap to return to reading", menuCanvas.width() / 2, 70);
+  menuCanvas.drawString("Long press middle to power off", menuCanvas.width() / 2, 100);
+  menuCanvas.drawString("Current page: " + String(currentPage + 1) + " of " + String(pageCount), 
+                        menuCanvas.width() / 2, 130);
+  
+  // Display menu at center of screen
+  menuCanvas.pushSprite((display.width() - menuCanvas.width()) / 2, 
+                         (display.height() - menuCanvas.height()) / 2);
+  
+  // Wait for touch to dismiss menu
+  bool menuActive = true;
+  
+  while (menuActive) {
+    lgfx::touch_point_t tp;
+    
+    // Check for touch
+    if (display.getTouch(&tp)) {
+      // For power off detection (long press in middle region)
+      int region = getTouchRegion();
+      
+      if (region == MIDDLE_REGION) {
+        if (!touchActive) {
+          touchActive = true;
+          touchStartTime = millis();
+        } else if (millis() - touchStartTime > LONG_PRESS_DURATION) {
+          // Long press detected - power off
+          canvas.setTextDatum(MC_DATUM);
+          canvas.drawString("Turning off...", canvas.width() / 2, canvas.height() / 2);
+          canvas.pushSprite(0, 0);
+          delay(1000);
+          storePageSD(currentPage);
+          M5.Power.powerOff();
+          return;
+        }
+      } else {
+        // Regular tap - dismiss menu
+        menuActive = false;
+        touchActive = false;
+      }
+    } else {
+      touchActive = false;
+    }
+    
+    delay(50);
+  }
+  
+  // Redraw the page after menu closes
+  canvas.pushSprite(0, 0);
+}
+
 void loop() {
-  delay(100);
   M5.update();
   
-  // Left button - previous page
-  if (M5.BtnL.wasPressed()) {
-    if (--currentPage < 0) currentPage = 0;
-    canvas.fillSprite(TFT_WHITE);
-    displayPage(textFile, pages[currentPage]);
+  int touchRegion = getTouchRegion();
+  
+  // Handle touch input
+  if (touchRegion >= 0) {
+    if (!touchActive) {
+      // Touch just started
+      touchActive = true;
+      touchStartTime = millis();
+      lastTouchRegion = touchRegion;
+    } else if (touchRegion == lastTouchRegion) {
+      // Continuing to touch the same region
+      if (touchRegion == MIDDLE_REGION && (millis() - touchStartTime > LONG_PRESS_DURATION)) {
+        // Long press in middle region - power off
+        storePageSD(currentPage);
+        canvas.setTextDatum(MC_DATUM);
+        canvas.drawString("Turning off...", canvas.width() / 2, canvas.height() / 2);
+        canvas.pushSprite(0, 0);
+        delay(1000);
+        M5.Power.powerOff();
+      }
+    }
+  } else if (touchActive) {
+    // Touch released
+    touchActive = false;
+    
+    // Handle the touch action based on duration and region
+    unsigned long touchDuration = millis() - touchStartTime;
+    
+    if (touchDuration < LONG_PRESS_DURATION) {
+      // Short press/tap
+      switch (lastTouchRegion) {
+        case LEFT_REGION:
+          // Previous page
+          if (--currentPage < 0) currentPage = 0;
+          canvas.fillSprite(TFT_WHITE);
+          displayPage(textFile, pages[currentPage]);
+          break;
+          
+        case MIDDLE_REGION:
+          // Show menu
+          showMenu();
+          break;
+          
+        case RIGHT_REGION:
+          // Next page
+          if (++currentPage >= pageCount) currentPage = pageCount - 1;
+          canvas.fillSprite(TFT_WHITE);
+          displayPage(textFile, pages[currentPage]);
+          break;
+      }
+    }
+    
+    lastTouchRegion = -1;
   }
   
-  // Middle button - save page and shutdown
-  if (M5.BtnP.wasPressed()) {
-    storePageSD(currentPage);
-    canvas.setTextDatum(MC_DATUM);
-    canvas.drawString("Turning off...", canvas.width()/2, canvas.height()/2);
-    canvas.pushSprite(0, 0);
-    delay(1000);
-    M5.Power.powerOff();
-  }
-  
-  // Right button - next page
-  if (M5.BtnR.wasPressed()) {
-    if (++currentPage >= pageCount) currentPage = pageCount - 1;
-    canvas.fillSprite(TFT_WHITE);
-    displayPage(textFile, pages[currentPage]);
-  }
+  delay(50);
 }
