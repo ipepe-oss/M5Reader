@@ -17,3 +17,4 @@
 - **Display Setup**: Always check for EPD mode and set rotation if needed
 - **Memory Management**: Be mindful of PSRAM usage for EPD buffer
 - **Library Usage**: Prefer M5GFX drawing primitives over custom implementations
+- Avoid writing superficial comments; instead, write clear and self-explanatory code.

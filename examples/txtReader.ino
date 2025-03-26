@@ -1,25 +1,30 @@
 /*
- * E-Book reader for M5Paper using M5GFX and epdiy.
+ * Prototype E-Book reader.
  *
  * It reads a single book on the root of the Micro SD card, called "Book.txt".
  *
- * The left and right buttons navigate between pages, and the middle button turns the device off.
+ * The jog wheel moves forward and backward between pages, and pressing it turns the M5 Paper on/off. (Hold for a few seconds to do either)
  *
- * The page you're on is saved to the SD card, rather than the EEPROM, to avoid wear.
+ * The page you're on is saved to the SD card, rather than the EEPROM, so as not to wear it out.
+ *
  */
 
-#include <epdiy.h>
-#include <M5GFX.h>
 
-M5GFX display;
-M5Canvas canvas(&display);
 
+#include <M5EPD.h>
+#include "Free_Fonts.h"
+
+M5EPD_Canvas canvas(&M5.EPD);
 const char *DATA_FILE = "/pageNumber.txt";
 
 int currentPage = 0;
+
 int pageCount = 0;
 int border = 10;
 uint8_t *textFile;
+
+rtc_time_t RTCtime;
+rtc_date_t RTCDate;
 
 struct aPage {
   uint32_t start;
@@ -36,7 +41,7 @@ String textSubstring(uint8_t *textFile, int startPtr, int endPtr) {
 
 int textIndexOfSpaceCR(uint8_t *textFile, int startPtr, int textLength) {
   for (int ptr = startPtr; ptr < textLength; ptr++) {
-    if ((textFile[ptr] == 32) || (textFile[ptr] == 13)) {
+    if ( (textFile[ptr] == 32) || (textFile[ptr] == 13) ) {
       return ptr;
     }
   }
@@ -76,21 +81,21 @@ int getNextPage(uint8_t *textFile, int startPtr, int textLength) {
   int wordEnd = 0;
   int xPos = 0;
   int yPos = 0;
-  int xMax = canvas.width() - (border << 1);
-  int yMax = canvas.height() - (border << 1);
-  
-  while (!reachedEndOfBook(wordStart + startPtr, textLength - 500)) {
+  int xMax = 540 - (border << 1);
+  int yMax = 960 - (border << 1);
+  while ( !reachedEndOfBook(wordStart + startPtr, textLength - 500) ) {
     // Get the end of the current word.
     wordEnd = textIndexOfSpaceCR(textFile, startPtr + wordStart + 1, textLength) - startPtr;
     // Measure the text.
     String text = textSubstring(textFile, startPtr + wordStart, startPtr + wordEnd);
     int textPixelLength = canvas.textWidth(text);
     // If the line of text with the new word over-runs the side of the screen,
-    if ((xPos + textPixelLength >= xMax) || (text.charAt(0) == 13)) {
+    if ((xPos + textPixelLength >= xMax) || (text.charAt(0) == 13) ) {
       xPos = 0;
-      yPos += 22;  // Line height
+      yPos += 22;  //canvas.fontHeight();
       wordStart++; // Miss out space as this is a new line.
-      if ((yPos + 90) >= yMax) {
+      //if ( ( yPos + canvas.fontHeight() ) >= yMax ) {
+      if ( ( yPos + 90 ) >= yMax ) {
         if (pageCount > 0) {
           Serial.print(" New PAGE: ");
         }
@@ -106,7 +111,7 @@ int getNextPage(uint8_t *textFile, int startPtr, int textLength) {
 void findPageStartStop(uint8_t *textFile, int textLength) {
   int startPtr = 0;
   int endPtr = 0;
-  while ((endPtr < textLength) && (textFile[endPtr] != 0)) {
+  while ( (endPtr < textLength) && (textFile[endPtr] != 0) ) {
     endPtr = getNextPage(textFile, startPtr, textLength);
     if (startPtr >= textLength) break;
     pages[pageCount].start = startPtr;
@@ -121,7 +126,7 @@ void displayPage(uint8_t *textFile, aPage page) {
   String text = textSubstring(textFile, page.start, page.end);
   int wordStart = 0;
   int wordEnd = 0;
-  while ((text.indexOf(' ', wordStart) >= 0) && (wordStart <= text.length())) {
+  while ( (text.indexOf(' ', wordStart) >= 0) && ( wordStart <= text.length())) {
     wordEnd = text.indexOf(' ', wordStart + 1);
     uint16_t len = canvas.textWidth(text.substring(wordStart, wordEnd));
     if (canvas.getCursorX() + len >= canvas.width() - (border << 1)) {
@@ -132,94 +137,71 @@ void displayPage(uint8_t *textFile, aPage page) {
     wordStart = wordEnd;
   }
 
-  // Footer with page information
+  char timeStrbuff[64];
+  M5.RTC.getTime(&RTCtime);
+  M5.RTC.getDate(&RTCDate);
+
+  sprintf(timeStrbuff, "%d/%02d/%02d...%02d:%02d:%02d",
+          RTCDate.year, RTCDate.mon, RTCDate.day,
+          RTCtime.hour, RTCtime.min, RTCtime.sec);
+
+  canvas.drawRightString(timeStrbuff, 200, 955, 1);
   char footer[256] = "...";
-  sprintf(footer, "Page %d of %d", currentPage + 1, pageCount);
-  canvas.drawRightString(footer, canvas.width() - border, canvas.height() - 5, 1);
-  
-  canvas.pushSprite(0, 0);
+  sprintf(footer, "Page %d of %d  ", currentPage + 1, pageCount);
+  canvas.drawRightString(footer, 500, 955, 1);
+  canvas.pushCanvas(0, 0, UPDATE_MODE_GC16);
 }
 
 void setup() {
-  Serial.begin(115200);
-  
-  // Initialize display
-  display.begin();
-  
-  if (display.isEPD()) {
-    display.setEpdMode(epd_mode_t::epd_quality);
-    display.invertDisplay(true);
-    display.clear(TFT_BLACK);
-  }
-  
-  if (display.width() < display.height()) {
-    display.setRotation(display.getRotation() ^ 1);
-  }
-
-  // Initialize canvas
-  canvas.setColorDepth(1); // mono color
-  canvas.createSprite(display.width(), display.height());
+  M5.begin();
+  M5.EPD.SetRotation(90);
+  M5.EPD.Clear(true);
+  canvas.createCanvas(540, 960);
+  canvas.fillCanvas(0);
+  canvas.setFreeFont(FSS9);
+  //canvas.setFreeFont(FSS12);
   canvas.setTextSize(1);
-  canvas.setTextDatum(TL_DATUM);
-  canvas.setTextArea(border, border, display.width() - (border << 1), display.height() - (border << 1));
-  
-  // Load text file
+  canvas.setTextColor(15);
+  canvas.setTextWrap(true, true);
+  canvas.setCursor(0, 0);
+  canvas.setTextArea(border, border, 540 - (border << 1), 960 - (border << 1));
+
   textFile = (uint8_t*)ps_malloc(1048576); // 1MB
   auto f = SD.open("/book.txt", "rb");
-  
-  if (!f) {
-    Serial.println("Failed to open book.txt");
-    canvas.setTextDatum(MC_DATUM);
-    canvas.drawString("Error: book.txt not found", canvas.width()/2, canvas.height()/2);
-    canvas.pushSprite(0, 0);
-    return;
-  }
-  
   int fileLength = f.available();
   Serial.print("File length: ");
   Serial.println(fileLength);
   f.read(textFile, f.available());
-  f.close();
   Serial.println("Loaded.");
 
   Serial.println("Splitting into pages.");
   findPageStartStop(textFile, fileLength);
 
   currentPage = getPageSD();
-  if (currentPage >= pageCount) {
-    currentPage = 0;
-  }
-  
-  canvas.fillSprite(TFT_WHITE);
   displayPage(textFile, pages[currentPage]);
 }
 
 void loop() {
-  delay(100);
+  delay(500);
   M5.update();
-  
-  // Left button - previous page
   if (M5.BtnL.wasPressed()) {
     if (--currentPage < 0) currentPage = 0;
-    canvas.fillSprite(TFT_WHITE);
+    canvas.fillCanvas(0);
     canvas.setCursor(0, 0);
     displayPage(textFile, pages[currentPage]);
   }
-  
-  // Middle button - save page and shutdown
   if (M5.BtnP.wasPressed()) {
     storePageSD(currentPage);
-    canvas.drawRightString("Turning off...", canvas.width() - border, canvas.height() - 5, 1);
-    canvas.pushSprite(0, 0);
+    canvas.drawRightString("Off", 250, 955, 1);
+    canvas.pushCanvas(0, 0, UPDATE_MODE_GC16);
     delay(1000);
     M5.shutdown();
   }
-  
-  // Right button - next page
   if (M5.BtnR.wasPressed()) {
-    if (++currentPage >= pageCount) currentPage = pageCount - 1;
-    canvas.fillSprite(TFT_WHITE);
+    if (++currentPage == pageCount) currentPage = pageCount - 1;
+    canvas.fillCanvas(0);
     canvas.setCursor(0, 0);
     displayPage(textFile, pages[currentPage]);
   }
+
 }
