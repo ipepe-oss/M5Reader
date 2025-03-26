@@ -10,6 +10,8 @@
 
 #include <epdiy.h>
 #include <M5GFX.h>
+#include <SD.h>
+#include <M5Unified.h>
 
 M5GFX display;
 M5Canvas canvas(&display);
@@ -117,15 +119,17 @@ void findPageStartStop(uint8_t *textFile, int textLength) {
 }
 
 void displayPage(uint8_t *textFile, aPage page) {
-  canvas.setCursor(0, 0);
+  canvas.setCursor(border, border);
   String text = textSubstring(textFile, page.start, page.end);
   int wordStart = 0;
   int wordEnd = 0;
   while ((text.indexOf(' ', wordStart) >= 0) && (wordStart <= text.length())) {
     wordEnd = text.indexOf(' ', wordStart + 1);
+    if (wordEnd < 0) wordEnd = text.length();
     uint16_t len = canvas.textWidth(text.substring(wordStart, wordEnd));
     if (canvas.getCursorX() + len >= canvas.width() - (border << 1)) {
       canvas.println();
+      canvas.setCursor(border, canvas.getCursorY());
       wordStart++;
     }
     canvas.print(text.substring(wordStart, wordEnd));
@@ -133,14 +137,17 @@ void displayPage(uint8_t *textFile, aPage page) {
   }
 
   // Footer with page information
-  char footer[256] = "...";
+  char footer[64];
   sprintf(footer, "Page %d of %d", currentPage + 1, pageCount);
-  canvas.drawRightString(footer, canvas.width() - border, canvas.height() - 5, 1);
+  canvas.setTextDatum(BR_DATUM);
+  canvas.drawString(footer, canvas.width() - border, canvas.height() - border);
+  canvas.setTextDatum(TL_DATUM);
   
   canvas.pushSprite(0, 0);
 }
 
 void setup() {
+  M5.begin();
   Serial.begin(115200);
   
   // Initialize display
@@ -161,7 +168,16 @@ void setup() {
   canvas.createSprite(display.width(), display.height());
   canvas.setTextSize(1);
   canvas.setTextDatum(TL_DATUM);
-  canvas.setTextArea(border, border, display.width() - (border << 1), display.height() - (border << 1));
+  canvas.setTextWrap(true, true);
+  
+  // Initialize SD card
+  if (!SD.begin()) {
+    Serial.println("SD card initialization failed!");
+    canvas.setTextDatum(MC_DATUM);
+    canvas.drawString("Error: SD card initialization failed", canvas.width()/2, canvas.height()/2);
+    canvas.pushSprite(0, 0);
+    return;
+  }
   
   // Load text file
   textFile = (uint8_t*)ps_malloc(1048576); // 1MB
@@ -202,24 +218,23 @@ void loop() {
   if (M5.BtnL.wasPressed()) {
     if (--currentPage < 0) currentPage = 0;
     canvas.fillSprite(TFT_WHITE);
-    canvas.setCursor(0, 0);
     displayPage(textFile, pages[currentPage]);
   }
   
   // Middle button - save page and shutdown
   if (M5.BtnP.wasPressed()) {
     storePageSD(currentPage);
-    canvas.drawRightString("Turning off...", canvas.width() - border, canvas.height() - 5, 1);
+    canvas.setTextDatum(MC_DATUM);
+    canvas.drawString("Turning off...", canvas.width()/2, canvas.height()/2);
     canvas.pushSprite(0, 0);
     delay(1000);
-    M5.shutdown();
+    M5.Power.powerOff();
   }
   
   // Right button - next page
   if (M5.BtnR.wasPressed()) {
     if (++currentPage >= pageCount) currentPage = pageCount - 1;
     canvas.fillSprite(TFT_WHITE);
-    canvas.setCursor(0, 0);
     displayPage(textFile, pages[currentPage]);
   }
 }
